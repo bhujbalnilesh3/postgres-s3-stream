@@ -1,7 +1,7 @@
 
 require('dotenv').config();
 const AWS = require('aws-sdk');
-const { createBrotliCompress, constants } = require('zlib');
+const zlib = require('zlib');
 const { PassThrough, Transform } = require('stream');
 const { Pool } = require('pg');
 const copyTo = require('pg-copy-streams').to;
@@ -67,13 +67,7 @@ async function exportToS3() {
 
     // Streaming Setup
     const passThrough = new PassThrough();
-    
-    const brotli = createBrotliCompress({
-      params: {
-        [constants.BROTLI_PARAM_QUALITY]: 6, // moderate cpu uses
-      },
-    });
-
+    const gzip = zlib.createGzip();
     const queryStream = client.query(
       copyTo(`COPY ${process.env.TABLE_NAME} TO STDOUT WITH CSV HEADER`)
     );
@@ -89,7 +83,7 @@ async function exportToS3() {
     });
 
     // Pipe: PostgreSQL => Transform => Gzip => S3
-    queryStream.pipe(transformStream).pipe(brotli).pipe(passThrough);
+    queryStream.pipe(transformStream).pipe(gzip).pipe(passThrough);
 
     // Await Upload Completion
     await upload.promise();
