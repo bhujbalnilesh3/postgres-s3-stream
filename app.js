@@ -1,6 +1,7 @@
 
 require('dotenv').config();
 const AWS = require('aws-sdk');
+const { perfomance } = require('perf_hooks');
 const zlib = require('zlib');
 const { PassThrough, Transform } = require('stream');
 const { Pool } = require('pg');
@@ -57,6 +58,7 @@ class DataTransformer extends Transform {
 async function exportToS3() {
   const client = await pool.connect();
   try {
+    const start = perfomance.now();
     console.log('Starting PostgreSQL COPY stream...');
 
     // Generate S3 File Key
@@ -88,6 +90,7 @@ async function exportToS3() {
     // Await Upload Completion
     await upload.promise();
     console.log(`Successfully uploaded to S3: s3://${BUCKET_NAME}/${s3Key}`);
+    console.log(`Time taken: ${perfomance.now() - start}`);
 
   } catch (err) {
     console.error('Error:', err);
