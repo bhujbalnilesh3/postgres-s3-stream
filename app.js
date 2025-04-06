@@ -1,6 +1,7 @@
 
 require('dotenv').config();
 const AWS = require('aws-sdk');
+const { createBrotliCompress, constants } = require('zlib');
 const { PassThrough, Transform } = require('stream');
 const { Pool } = require('pg');
 const copyTo = require('pg-copy-streams').to;
@@ -60,13 +61,22 @@ async function exportToS3() {
 
     // Generate S3 File Key
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const s3Key = `exports/large_table_${timestamp}.csv`;
+    const s3Key = `exports/large_table_${timestamp}.csv.gz`;
 
     console.log(`Uploading to S3: s3://${BUCKET_NAME}/${s3Key}`);
 
     // Streaming Setup
     const passThrough = new PassThrough();
-    const queryStream = client.query(copyTo('COPY large_table TO STDOUT WITH CSV HEADER'));
+    
+    const brotli = createBrotliCompress({
+      params: {
+        [constants.BROTLI_PARAM_QUALITY]: 6, // moderate cpu uses
+      },
+    });
+
+    const queryStream = client.query(
+      copyTo(`COPY ${process.env.TABLE_NAME} TO STDOUT WITH CSV HEADER`)
+    );
     const transformStream = new DataTransformer();
 
     // Start S3 Upload
@@ -74,11 +84,12 @@ async function exportToS3() {
       Bucket: process.env.S3_BUCKET_NAME,
       Key: s3Key,
       Body: passThrough,
-      ContentType: 'text/csv'
+      ContentType: 'application/gzip',
+      ContentEncoding: 'gzip'
     });
 
-    // Pipe: PostgreSQL => Transform => S3
-    queryStream.pipe(transformStream).pipe(passThrough);
+    // Pipe: PostgreSQL => Transform => Gzip => S3
+    queryStream.pipe(transformStream).pipe(brotli).pipe(passThrough);
 
     // Await Upload Completion
     await upload.promise();
